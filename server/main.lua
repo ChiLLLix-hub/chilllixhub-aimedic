@@ -1,4 +1,116 @@
+-- Cooldown tracking
+local commandCooldowns = {}
+local COOLDOWN_TIME = 60 -- 60 seconds between uses
+local MAX_USES_PER_HOUR = 5 -- Maximum uses per hour
+
+-- Usage tracking for abuse detection
+local usageTracking = {}
+
+-- Server-side revive state tracking
+local playersBeingRevived = {}
+
+-- Validate coordinates are within reasonable bounds
+function ValidateCoordinates(coords)
+    if not coords then return false end
+    if type(coords) ~= 'vector3' then return false end
+    
+    -- GTA V map bounds (approximately)
+    if coords.x < -4000 or coords.x > 4000 then return false end
+    if coords.y < -4000 or coords.y > 4000 then return false end
+    if coords.z < -100 or coords.z > 1000 then return false end
+    
+    return true
+end
+
+-- Function to start revive process
+function StartReviveProcess(source)
+    if playersBeingRevived[source] then
+        return false, "You are already being revived!"
+    end
+    playersBeingRevived[source] = os.time()
+    return true, "Revive started"
+end
+
+-- Function to end revive process
+function EndReviveProcess(source)
+    playersBeingRevived[source] = nil
+end
+
+-- Cleanup old cooldown data every 5 minutes
+CreateThread(function()
+    while true do
+        Wait(300000) -- 5 minutes
+        local currentTime = os.time()
+        for player, data in pairs(commandCooldowns) do
+            if currentTime - data > 3600 then -- 1 hour old
+                commandCooldowns[player] = nil
+            end
+        end
+        for player, data in pairs(usageTracking) do
+            if currentTime - data.resetTime > 3600 then
+                usageTracking[player] = nil
+            end
+        end
+    end
+end)
+
+-- Timeout check (cleanup stuck revives after 2 minutes)
+CreateThread(function()
+    while true do
+        Wait(30000) -- Check every 30 seconds
+        local currentTime = os.time()
+        for player, startTime in pairs(playersBeingRevived) do
+            if currentTime - startTime > 120 then -- 2 minutes
+                playersBeingRevived[player] = nil
+                print('[AI Medic] Cleaned up stuck revive state for player: ' .. player)
+            end
+        end
+    end
+end)
+
+-- Cleanup disconnected players
+AddEventHandler('playerDropped', function()
+    local src = source
+    if playersBeingRevived[src] then
+        playersBeingRevived[src] = nil
+        print('[AI Medic] Cleaned up revive state for disconnected player: ' .. src)
+    end
+    if commandCooldowns[src] then
+        commandCooldowns[src] = nil
+    end
+    if usageTracking[src] then
+        usageTracking[src] = nil
+    end
+end)
+
 RegisterCommand('callmedic', function(source)
+    local currentTime = os.time()
+    
+    -- Check cooldown
+    if commandCooldowns[source] and currentTime - commandCooldowns[source] < COOLDOWN_TIME then
+        local remaining = COOLDOWN_TIME - (currentTime - commandCooldowns[source])
+        Utils.Notify(source, "Please wait " .. remaining .. " seconds before calling medic again.", "error")
+        print('[AI Medic] Player ' .. source .. ' attempted to call medic during cooldown')
+        return
+    end
+    
+    -- Track usage for abuse detection
+    if not usageTracking[source] then
+        usageTracking[source] = {count = 0, resetTime = currentTime + 3600}
+    end
+    
+    if currentTime > usageTracking[source].resetTime then
+        usageTracking[source] = {count = 0, resetTime = currentTime + 3600}
+    end
+    
+    usageTracking[source].count = usageTracking[source].count + 1
+    
+    if usageTracking[source].count > MAX_USES_PER_HOUR then
+        Utils.Notify(source, "You have exceeded the hourly limit for AI medic. Please wait.", "error")
+        print('[AI Medic] WARNING: Player ' .. source .. ' exceeded hourly limit (' .. usageTracking[source].count .. ' uses)')
+        return
+    end
+    
     print('[AI Medic] callmedic command triggered by source: ' .. source)
     local onlineEMS = 0
     if Utils.QBCore then
@@ -18,18 +130,36 @@ RegisterCommand('callmedic', function(source)
 
     local ped = GetPlayerPed(source)
     local coords = GetEntityCoords(ped)
-    if not coords then
-        print('[AI Medic] Failed to get coords for source: ' .. source)
-        Utils.Notify(source, "Error: Could not get your location.", "error")
+    if not ValidateCoordinates(coords) then
+        print('[AI Medic] Invalid coords for source: ' .. source .. ' - ' .. tostring(coords))
+        Utils.Notify(source, "Invalid location for medic service.", "error")
         return
     end
+    
+    -- Check if already being revived
+    local canRevive, message = StartReviveProcess(source)
+    if not canRevive then
+        Utils.Notify(source, message, "error")
+        return
+    end
+    
+    -- Set cooldown BEFORE triggering (prevents double-tapping)
+    commandCooldowns[source] = currentTime
+    
     print('[AI Medic] Triggering revivePlayer for source: ' .. source .. ' at coords: ' .. tostring(coords))
     TriggerClientEvent('custom_aimedic:revivePlayer', source, coords)
 end, false)
 
 RegisterNetEvent('custom_aimedic:chargePlayer')
-AddEventHandler('custom_aimedic:chargePlayer', function(target)
-    local src = target or source
+AddEventHandler('custom_aimedic:chargePlayer', function()
+    local src = source -- ALWAYS use source, never trust parameters
+    
+    -- Rate limit: max 3 calls per minute
+    if not RateLimiter.CheckLimit(src, 'chargePlayer', 3, 60) then
+        print('[AI Medic] Player ' .. src .. ' rate limited on chargePlayer')
+        return
+    end
+    
     print('[AI Medic] Charging player: ' .. src)
     local Player = Utils.GetPlayerFramework(src)
     if Player then
@@ -47,6 +177,20 @@ end)
 -- Custom revive event for standalone mode
 RegisterNetEvent('custom_aimedic:revivePlayer')
 AddEventHandler('custom_aimedic:revivePlayer', function(target)
+    local src = source
+    
+    -- Rate limit: max 2 calls per minute
+    if not RateLimiter.CheckLimit(src, 'revivePlayer', 2, 60) then
+        print('[AI Medic] Player ' .. src .. ' rate limited on revivePlayer')
+        return
+    end
+    
+    -- SECURITY: Only allow players to revive themselves
+    if target ~= src then
+        print('[AI Medic] SECURITY WARNING: Player ' .. src .. ' attempted to revive player ' .. target .. ' - BLOCKED')
+        return
+    end
+    
     print('[AI Medic] Revive requested for target: ' .. target)
     if Utils.QBCore then
         -- Use QBCore's revive event (adjust based on your QBCore version)
@@ -55,4 +199,12 @@ AddEventHandler('custom_aimedic:revivePlayer', function(target)
         -- Standalone revive logic
         TriggerClientEvent('custom_aimedic:standaloneRevive', target)
     end
+end)
+
+-- Client notifies when revive is complete
+RegisterNetEvent('custom_aimedic:reviveComplete')
+AddEventHandler('custom_aimedic:reviveComplete', function()
+    local src = source
+    EndReviveProcess(src)
+    print('[AI Medic] Revive completed for player: ' .. src)
 end)

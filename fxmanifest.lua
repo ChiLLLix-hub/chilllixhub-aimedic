@@ -14,6 +14,7 @@ client_scripts {
 }
 
 server_scripts {
+    'server/rate_limiter.lua',
     'server/main.lua',
     'server/utils_server.lua'
 }

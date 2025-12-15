@@ -136,7 +136,14 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
 
     DeleteEntity(medic)
     DeleteEntity(vehicle)
+    
+    -- Cleanup models from memory
+    SetModelAsNoLongerNeeded(Config.MedicModel)
+    SetModelAsNoLongerNeeded(Config.AmbulanceModel)
+    SetModelAsNoLongerNeeded(GetHashKey(MEDBAG_MODEL))
+    
     isBeingRevived = false
+    TriggerServerEvent('custom_aimedic:reviveComplete')
 end)
 
 RegisterNetEvent('custom_aimedic:standaloneRevive')
