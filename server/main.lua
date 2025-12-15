@@ -10,6 +10,12 @@ local usageTracking = {}
 -- Server-side revive state tracking
 local playersBeingRevived = {}
 
+-- Multi-player AI Medic tracking
+local activeAIMedics = 0
+local medicQueue = {}
+local medicAssignments = {} -- Track which players are assigned to which medic
+local activeMedicLocations = {} -- Track active medic dispatch locations
+
 -- Map bounds configuration
 local MIN_MAP_X = -4000
 local MAX_MAP_X = 4000
@@ -29,6 +35,154 @@ function ValidateCoordinates(coords)
     if coords.z < MIN_MAP_Z or coords.z > MAX_MAP_Z then return false end
     
     return true
+end
+
+-- Find nearby downed players within radius
+function FindNearbyDownedPlayers(coords, requestingPlayer)
+    local nearbyPlayers = {}
+    local players = GetPlayers()
+    
+    for _, playerId in ipairs(players) do
+        local id = tonumber(playerId)
+        if id and id ~= requestingPlayer then
+            local playerPed = GetPlayerPed(id)
+            if playerPed and playerPed ~= 0 then
+                local playerCoords = GetEntityCoords(playerPed)
+                if playerCoords then
+                    local distance = #(coords - playerCoords)
+                    if distance <= Config.NearbyPlayerRadius then
+                        -- Check if player is downed
+                        local isDowned = false
+                        if Utils.QBCore then
+                            local Player = Utils.QBCore.Functions.GetPlayer(id)
+                            if Player and (Player.PlayerData.metadata['isdead'] or Player.PlayerData.metadata['inlaststand']) then
+                                isDowned = true
+                            end
+                        else
+                            if IsEntityDead(playerPed) then
+                                isDowned = true
+                            end
+                        end
+                        
+                        if isDowned and not playersBeingRevived[id] then
+                            table.insert(nearbyPlayers, {id = id, coords = playerCoords, distance = distance})
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Sort by distance (closest first)
+    table.sort(nearbyPlayers, function(a, b) return a.distance < b.distance end)
+    
+    return nearbyPlayers
+end
+
+-- Check if there's already a medic dispatched nearby
+function IsMedicNearby(coords)
+    for medicId, medicData in pairs(activeMedicLocations) do
+        local distance = #(coords - medicData.location)
+        if distance <= Config.NearbyPlayerRadius then
+            -- Check if this medic can handle more patients
+            if #medicData.patients < Config.MaxPatientsPerMedic then
+                return true, medicId
+            end
+        end
+    end
+    return false, nil
+end
+
+-- Assign player to existing medic
+function AssignToExistingMedic(playerId, medicId)
+    if activeMedicLocations[medicId] then
+        table.insert(activeMedicLocations[medicId].patients, playerId)
+        playersBeingRevived[playerId] = os.time()
+        return true
+    end
+    return false
+end
+
+-- Create new medic assignment
+function CreateMedicAssignment(primaryPlayer, coords, nearbyPlayers)
+    local medicId = "medic_" .. primaryPlayer .. "_" .. os.time()
+    local patients = {primaryPlayer}
+    
+    -- Add nearby players to this medic (up to max limit)
+    local addedCount = 0
+    for _, playerData in ipairs(nearbyPlayers) do
+        if addedCount >= Config.MaxPatientsPerMedic - 1 then
+            break
+        end
+        table.insert(patients, playerData.id)
+        playersBeingRevived[playerData.id] = os.time()
+        addedCount = addedCount + 1
+    end
+    
+    activeMedicLocations[medicId] = {
+        location = coords,
+        patients = patients,
+        primaryPlayer = primaryPlayer,
+        timestamp = os.time()
+    }
+    
+    activeAIMedics = activeAIMedics + 1
+    
+    return medicId, patients
+end
+
+-- Process next queued request
+function ProcessMedicQueue()
+    if #medicQueue > 0 and activeAIMedics < Config.MaxActiveAIMedics then
+        local nextRequest = table.remove(medicQueue, 1)
+        if nextRequest then
+            Utils.Notify(nextRequest.source, "AI medic is now available! Dispatching...", "success")
+            print('[AI Medic] Processing queued request for player: ' .. nextRequest.source)
+            
+            -- Re-trigger the medic dispatch
+            local ped = GetPlayerPed(nextRequest.source)
+            local coords = GetEntityCoords(ped)
+            if ValidateCoordinates(coords) then
+                DispatchAIMedic(nextRequest.source, coords)
+            end
+        end
+    end
+end
+
+-- Main dispatch function
+function DispatchAIMedic(source, coords)
+    -- Check if there's already a medic nearby that can handle this player
+    local medicNearby, medicId = IsMedicNearby(coords)
+    if medicNearby and medicId then
+        if AssignToExistingMedic(source, medicId) then
+            Utils.Notify(source, "AI medic is already en route to your location. You will be treated shortly.", "primary")
+            print('[AI Medic] Player ' .. source .. ' assigned to existing medic: ' .. medicId)
+            return
+        end
+    end
+    
+    -- Find nearby downed players
+    local nearbyPlayers = FindNearbyDownedPlayers(coords, source)
+    
+    -- Create new medic assignment
+    local medicId, patients = CreateMedicAssignment(source, coords, nearbyPlayers)
+    
+    -- Notify all assigned players
+    if #patients > 1 then
+        Utils.Notify(source, "AI medic dispatched! Nearby patients detected (" .. (#patients - 1) .. "). ETA: 30 seconds", "success")
+        for i = 2, #patients do
+            local patientId = patients[i]
+            Utils.Notify(patientId, "AI medic en route to your location. You will be treated shortly.", "primary")
+            print('[AI Medic] Player ' .. patientId .. ' auto-assigned to medic for group treatment')
+        end
+    else
+        Utils.Notify(source, "AI medic dispatched! ETA: 30 seconds", "success")
+    end
+    
+    print('[AI Medic] Medic ' .. medicId .. ' dispatched for ' .. #patients .. ' patient(s)')
+    
+    -- Trigger client event with patient list
+    TriggerClientEvent('custom_aimedic:revivePlayer', source, coords, patients, medicId)
 end
 
 -- Function to start revive process
@@ -74,6 +228,14 @@ CreateThread(function()
                 print('[AI Medic] Cleaned up stuck revive state for player: ' .. player)
             end
         end
+        
+        -- Cleanup old medic assignments
+        for medicId, medicData in pairs(activeMedicLocations) do
+            if currentTime - medicData.timestamp > 300 then -- 5 minutes old
+                activeMedicLocations[medicId] = nil
+                print('[AI Medic] Cleaned up old medic assignment: ' .. medicId)
+            end
+        end
     end
 end)
 
@@ -89,6 +251,24 @@ AddEventHandler('playerDropped', function()
     end
     if usageTracking[src] then
         usageTracking[src] = nil
+    end
+    
+    -- Remove from queue if present
+    for i = #medicQueue, 1, -1 do
+        if medicQueue[i].source == src then
+            table.remove(medicQueue, i)
+            print('[AI Medic] Removed disconnected player from queue: ' .. src)
+        end
+    end
+    
+    -- Remove from medic assignments
+    for medicId, medicData in pairs(activeMedicLocations) do
+        for i = #medicData.patients, 1, -1 do
+            if medicData.patients[i] == src then
+                table.remove(medicData.patients, i)
+                print('[AI Medic] Removed disconnected player from medic assignment: ' .. src)
+            end
+        end
     end
 end)
 
@@ -146,17 +326,26 @@ RegisterCommand('callmedic', function(source)
     end
     
     -- Check if already being revived
-    local canRevive, message = StartReviveProcess(source)
-    if not canRevive then
-        Utils.Notify(source, message, "error")
+    if playersBeingRevived[source] then
+        Utils.Notify(source, "You are already being revived!", "error")
+        return
+    end
+    
+    -- Check global medic limit
+    if activeAIMedics >= Config.MaxActiveAIMedics then
+        -- Add to queue
+        table.insert(medicQueue, {source = source, coords = coords, timestamp = currentTime})
+        Utils.Notify(source, "All AI medics are busy. You are #" .. #medicQueue .. " in queue.", "error")
+        print('[AI Medic] Player ' .. source .. ' added to queue. Queue position: ' .. #medicQueue)
         return
     end
     
     -- Set cooldown BEFORE triggering (prevents double-tapping)
     commandCooldowns[source] = currentTime
+    playersBeingRevived[source] = currentTime
     
-    print('[AI Medic] Triggering revivePlayer for source: ' .. source .. ' at coords: ' .. tostring(coords))
-    TriggerClientEvent('custom_aimedic:revivePlayer', source, coords)
+    -- Dispatch AI medic with smart queue system
+    DispatchAIMedic(source, coords)
 end, false)
 
 -- Event handler for charging player (server validates source)
@@ -215,8 +404,18 @@ end)
 
 -- Client notifies when revive is complete
 RegisterNetEvent('custom_aimedic:reviveComplete')
-AddEventHandler('custom_aimedic:reviveComplete', function()
+AddEventHandler('custom_aimedic:reviveComplete', function(medicId)
     local src = source
     EndReviveProcess(src)
     print('[AI Medic] Revive completed for player: ' .. src)
+    
+    -- If medicId provided, clean up the medic assignment
+    if medicId and activeMedicLocations[medicId] then
+        activeMedicLocations[medicId] = nil
+        activeAIMedics = activeAIMedics - 1
+        print('[AI Medic] Medic ' .. medicId .. ' completed service. Active medics: ' .. activeAIMedics)
+        
+        -- Process queue if there are waiting requests
+        ProcessMedicQueue()
+    end
 end)

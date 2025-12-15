@@ -2,7 +2,7 @@ local isBeingRevived = false
 local MEDBAG_MODEL = "prop_med_bag_01"
 
 RegisterNetEvent('custom_aimedic:revivePlayer')
-AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
+AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, medicId)
     if isBeingRevived then return end
     isBeingRevived = true
 
@@ -26,6 +26,10 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
         isBeingRevived = false
         return
     end
+
+    -- Store medicId for cleanup
+    local currentMedicId = medicId or "medic_unknown"
+    local patientList = patients or {GetPlayerServerId(PlayerId())}
 
     local cause = GetPedCauseOfDeath(playerPed)
     local causeText = WeaponToName(cause)
@@ -143,7 +147,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
     SetModelAsNoLongerNeeded(GetHashKey(MEDBAG_MODEL))
     
     isBeingRevived = false
-    TriggerServerEvent('custom_aimedic:reviveComplete')
+    TriggerServerEvent('custom_aimedic:reviveComplete', currentMedicId)
 end)
 
 RegisterNetEvent('custom_aimedic:standaloneRevive')
