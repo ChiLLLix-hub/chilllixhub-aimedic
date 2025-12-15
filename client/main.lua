@@ -47,6 +47,10 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     local vehicle = CreateVehicle(Config.AmbulanceModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
     local medic = CreatePedInsideVehicle(vehicle, 4, Config.MedicModel, -1, true, false)
 
+    -- Ensure vehicle is unlocked for medic operations
+    SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    
     SetVehicleSiren(vehicle, true)
     SetVehicleHasMutedSirens(vehicle, false)
     SetVehicleLights(vehicle, 2)
@@ -68,6 +72,11 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
 
     ClearPedTasks(medic)
     Wait(1000)
+    
+    -- Unlock vehicle before medic exits
+    SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    
     TaskLeaveVehicle(medic, vehicle, 0)
     Wait(2000)
     if IsPedInAnyVehicle(medic, false) then
@@ -75,6 +84,10 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
         TaskLeaveVehicle(medic, vehicle, 0)
         Wait(2000)
     end
+    
+    -- Ensure vehicle remains unlocked after medic exits
+    SetVehicleDoorsLocked(vehicle, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
 
     TaskGoToCoordAnyMeans(medic, playerPos.x, playerPos.y, playerPos.z, 2.0, 0, 0, 786603, 0)
     local walkTimeout = GetGameTimer() + 10000
@@ -125,16 +138,35 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     Wait(1000)
 
     local dest = GetNearestHospital(playerPos)
+    
+    -- Unlock vehicle before player enters
+    SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    
     TaskEnterVehicle(playerPed, vehicle, 10000, 2, 1.0, 1, 0)
     Wait(3000)
+    
+    -- Unlock vehicle before medic enters
+    SetVehicleDoorsLocked(vehicle, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    
     TaskVehicleDriveToCoord(medic, vehicle, dest.x, dest.y, dest.z, 25.0, 0, GetHashKey(Config.AmbulanceModel), 524863, 5.0, 1.0)
 
     local driveTimeout = GetGameTimer() + 60000
     while #(GetEntityCoords(vehicle) - dest) > 5.0 and GetGameTimer() < driveTimeout do Wait(1000) end
 
+    -- Unlock vehicle before player exits at hospital
+    SetVehicleDoorsLocked(vehicle, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    
     TaskLeaveVehicle(playerPed, vehicle, 0)
     Wait(2000)
     if DoesBlipExist(blip) then RemoveBlip(blip) end
+    
+    -- Unlock vehicle before medic enters again
+    SetVehicleDoorsLocked(vehicle, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    
     TaskEnterVehicle(medic, vehicle, -1, -1, 1.0, 1, 0)
     Wait(3000)
 
