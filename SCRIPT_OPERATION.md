@@ -183,11 +183,14 @@ Config.Hospitals = {
     default = vector3(293.0, -582.0, 43.0)
 }
 ```
+**Status**: ✅ Fixed in this PR
 
-### 2. Double Event Registration
-In `server/main.lua`, the event `custom_aimedic:revivePlayer` is registered twice:
-- Line 48: As a server event handler
-- This could be confusing but won't cause errors
+### 2. Event Naming Clarity
+In `server/main.lua`, the same event name is used for both triggering (line 27) and handling (line 48), which could be confusing:
+- Line 27: `TriggerClientEvent('custom_aimedic:revivePlayer', source, coords)` - sends to client
+- Line 48: `RegisterNetEvent('custom_aimedic:revivePlayer')` - receives from client
+
+This works correctly but uses the same event name for different purposes.
 
 ### 3. Potential Resource Cleanup
 Entities are deleted but models remain loaded. Consider calling `SetModelAsNoLongerNeeded()` after use.
