@@ -2,6 +2,7 @@
 local commandCooldowns = {}
 local COOLDOWN_TIME = 60 -- 60 seconds between uses
 local MAX_USES_PER_HOUR = 5 -- Maximum uses per hour
+local REVIVE_TIMEOUT = 120 -- 2 minutes timeout for stuck revives
 
 -- Usage tracking for abuse detection
 local usageTracking = {}
@@ -9,15 +10,23 @@ local usageTracking = {}
 -- Server-side revive state tracking
 local playersBeingRevived = {}
 
+-- Map bounds configuration
+local MIN_MAP_X = -4000
+local MAX_MAP_X = 4000
+local MIN_MAP_Y = -4000
+local MAX_MAP_Y = 4000
+local MIN_MAP_Z = -100
+local MAX_MAP_Z = 1000
+
 -- Validate coordinates are within reasonable bounds
 function ValidateCoordinates(coords)
     if not coords then return false end
     if type(coords) ~= 'vector3' then return false end
     
-    -- GTA V map bounds (approximately)
-    if coords.x < -4000 or coords.x > 4000 then return false end
-    if coords.y < -4000 or coords.y > 4000 then return false end
-    if coords.z < -100 or coords.z > 1000 then return false end
+    -- GTA V map bounds
+    if coords.x < MIN_MAP_X or coords.x > MAX_MAP_X then return false end
+    if coords.y < MIN_MAP_Y or coords.y > MAX_MAP_Y then return false end
+    if coords.z < MIN_MAP_Z or coords.z > MAX_MAP_Z then return false end
     
     return true
 end
@@ -54,13 +63,13 @@ CreateThread(function()
     end
 end)
 
--- Timeout check (cleanup stuck revives after 2 minutes)
+-- Timeout check (cleanup stuck revives)
 CreateThread(function()
     while true do
         Wait(30000) -- Check every 30 seconds
         local currentTime = os.time()
         for player, startTime in pairs(playersBeingRevived) do
-            if currentTime - startTime > 120 then -- 2 minutes
+            if currentTime - startTime > REVIVE_TIMEOUT then
                 playersBeingRevived[player] = nil
                 print('[AI Medic] Cleaned up stuck revive state for player: ' .. player)
             end
@@ -150,9 +159,12 @@ RegisterCommand('callmedic', function(source)
     TriggerClientEvent('custom_aimedic:revivePlayer', source, coords)
 end, false)
 
+-- Event handler for charging player (server validates source)
+-- NOTE: This event no longer accepts parameters from client for security
+-- Server always uses the authenticated source ID
 RegisterNetEvent('custom_aimedic:chargePlayer')
 AddEventHandler('custom_aimedic:chargePlayer', function()
-    local src = source -- ALWAYS use source, never trust parameters
+    local src = source -- ALWAYS use source, never trust client parameters
     
     -- Rate limit: max 3 calls per minute
     if not RateLimiter.CheckLimit(src, 'chargePlayer', 3, 60) then

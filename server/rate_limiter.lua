@@ -2,6 +2,10 @@
 RateLimiter = {}
 RateLimiter.limits = {}
 
+-- Configuration
+local CLEANUP_INTERVAL_MS = 300000 -- 5 minutes in milliseconds
+local CLEANUP_WINDOW_SECONDS = 300 -- 5 minutes in seconds
+
 function RateLimiter.CheckLimit(source, eventName, maxCalls, windowSeconds)
     local key = source .. ":" .. eventName
     local currentTime = os.time()
@@ -42,12 +46,12 @@ end
 -- Cleanup old data every 5 minutes
 CreateThread(function()
     while true do
-        Wait(300000)
+        Wait(CLEANUP_INTERVAL_MS)
         local currentTime = os.time()
         for key, data in pairs(RateLimiter.limits) do
             local newCalls = {}
             for _, callTime in ipairs(data.calls) do
-                if currentTime - callTime < 300 then -- Keep last 5 minutes
+                if currentTime - callTime < CLEANUP_WINDOW_SECONDS then
                     table.insert(newCalls, callTime)
                 end
             end
