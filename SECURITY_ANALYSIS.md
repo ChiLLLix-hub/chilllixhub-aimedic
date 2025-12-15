@@ -43,12 +43,12 @@ Players can spam the `/callmedic` command repeatedly without any cooldown or rat
 **Recommendation**:
 ```lua
 local commandCooldowns = {}
-local COOLDOWN_TIME = 60000 -- 60 seconds
+local COOLDOWN_TIME = 60 -- 60 seconds
 
 RegisterCommand('callmedic', function(source)
-    local currentTime = os.time() * 1000
+    local currentTime = os.time()
     if commandCooldowns[source] and currentTime - commandCooldowns[source] < COOLDOWN_TIME then
-        local remaining = math.ceil((COOLDOWN_TIME - (currentTime - commandCooldowns[source])) / 1000)
+        local remaining = COOLDOWN_TIME - (currentTime - commandCooldowns[source])
         Utils.Notify(source, "Please wait " .. remaining .. " seconds before calling medic again.", "error")
         return
     end
@@ -253,7 +253,7 @@ end)
 RegisterNetEvent('custom_aimedic:revivePlayer')
 AddEventHandler('custom_aimedic:revivePlayer', function(target)
     local src = source
-    if target ~= src and target ~= GetPlayerServerId(PlayerId()) then
+    if target ~= src then
         -- Log suspicious activity
         print('[AI Medic] WARNING: Player ' .. src .. ' attempted to revive player ' .. target)
         return

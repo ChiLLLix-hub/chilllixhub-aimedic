@@ -151,8 +151,8 @@ Config.Hospitals = {                       -- Hospital locations
 -- Add to server/main.lua
 local commandCooldowns = {}
 RegisterCommand('callmedic', function(source)
-    local currentTime = os.time() * 1000
-    if commandCooldowns[source] and currentTime - commandCooldowns[source] < 60000 then
+    local currentTime = os.time()
+    if commandCooldowns[source] and currentTime - commandCooldowns[source] < 60 then
         Utils.Notify(source, "Please wait before calling medic again.", "error")
         return
     end
