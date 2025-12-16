@@ -2,7 +2,7 @@ local isBeingRevived = false
 local MEDBAG_MODEL = "prop_med_bag_01"
 
 RegisterNetEvent('custom_aimedic:revivePlayer')
-AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
+AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, medicId)
     if isBeingRevived then return end
     isBeingRevived = true
 
@@ -27,6 +27,10 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
         return
     end
 
+    -- Store medicId for cleanup
+    local currentMedicId = medicId or "medic_unknown"
+    local patientList = patients or {GetPlayerServerId(PlayerId())}
+
     local cause = GetPedCauseOfDeath(playerPed)
     local causeText = WeaponToName(cause)
     local displayCause = "Died from: " .. causeText
@@ -43,6 +47,17 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
     local vehicle = CreateVehicle(Config.AmbulanceModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
     local medic = CreatePedInsideVehicle(vehicle, 4, Config.MedicModel, -1, true, false)
 
+    -- Ensure vehicle is completely unlocked for all operations
+    SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
+    -- Unlock all individual doors
+    for i = 0, 5 do
+        SetVehicleDoorOpen(vehicle, i, false, false) -- Open doors briefly to unlock
+        Wait(10)
+        SetVehicleDoorShut(vehicle, i, false) -- Close them
+    end
+    
     SetVehicleSiren(vehicle, true)
     SetVehicleHasMutedSirens(vehicle, false)
     SetVehicleLights(vehicle, 2)
@@ -62,15 +77,34 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
     local timeout = GetGameTimer() + 30000
     while #(GetEntityCoords(vehicle) - playerPos) > 5.0 and GetGameTimer() < timeout do Wait(500) end
 
+    -- Immediately unlock vehicle when arrived
+    SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
+    
     ClearPedTasks(medic)
-    Wait(1000)
+    Wait(500) -- Reduced from 1000ms to 500ms
+    
+    -- Force unlock all doors before medic exits
+    SetVehicleDoorsLocked(vehicle, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
+    
     TaskLeaveVehicle(medic, vehicle, 0)
-    Wait(2000)
+    Wait(1000) -- Reduced from 2000ms to 1000ms
+    
+    -- Force medic out if still inside
     if IsPedInAnyVehicle(medic, false) then
         ClearPedTasksImmediately(medic)
-        TaskLeaveVehicle(medic, vehicle, 0)
-        Wait(2000)
+        SetPedCanRagdoll(medic, false)
+        TaskLeaveVehicle(medic, vehicle, 256) -- Use flag 256 for instant exit
+        Wait(500) -- Reduced from 2000ms to 500ms
     end
+    
+    -- Ensure vehicle remains unlocked after medic exits
+    SetVehicleDoorsLocked(vehicle, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
 
     TaskGoToCoordAnyMeans(medic, playerPos.x, playerPos.y, playerPos.z, 2.0, 0, 0, 786603, 0)
     local walkTimeout = GetGameTimer() + 10000
@@ -103,40 +137,102 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords)
     end)
 
     Wait(duration)
+    
+    -- Charge player and check if they have enough money
     TriggerServerEvent('custom_aimedic:chargePlayer')
     TriggerServerEvent('custom_aimedic:revivePlayer', GetPlayerServerId(PlayerId()))
 
-    Wait(2000)
-    if IsEntityDead(PlayerPedId()) then
-        local ped = PlayerPedId()
-        local coords = GetEntityCoords(ped)
-        NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, GetEntityHeading(ped), true, false)
-        SetEntityHealth(ped, GetEntityMaxHealth(ped))
-        ClearPedTasksImmediately(ped)
-        Utils.NotifyClient('You have been revived by AI EMS (fallback).', 'success')
-    end
-
-    DeleteEntity(bag)
-    ClearPedTasks(medic)
     Wait(1000)
-
-    local dest = GetNearestHospital(playerPos)
-    TaskEnterVehicle(playerPed, vehicle, 10000, 2, 1.0, 1, 0)
-    Wait(3000)
-    TaskVehicleDriveToCoord(medic, vehicle, dest.x, dest.y, dest.z, 25.0, 0, GetHashKey(Config.AmbulanceModel), 524863, 5.0, 1.0)
-
-    local driveTimeout = GetGameTimer() + 60000
-    while #(GetEntityCoords(vehicle) - dest) > 5.0 and GetGameTimer() < driveTimeout do Wait(1000) end
-
-    TaskLeaveVehicle(playerPed, vehicle, 0)
-    Wait(2000)
-    if DoesBlipExist(blip) then RemoveBlip(blip) end
-    TaskEnterVehicle(medic, vehicle, -1, -1, 1.0, 1, 0)
-    Wait(3000)
-
+    
+    -- Fade screen to black
+    DoScreenFadeOut(1000)
+    Wait(1000)
+    
+    -- Cleanup medic and vehicle while screen is black
+    DeleteEntity(bag)
     DeleteEntity(medic)
     DeleteEntity(vehicle)
+    if DoesBlipExist(blip) then RemoveBlip(blip) end
+    
+    -- Cleanup models from memory
+    SetModelAsNoLongerNeeded(Config.MedicModel)
+    SetModelAsNoLongerNeeded(Config.AmbulanceModel)
+    SetModelAsNoLongerNeeded(GetHashKey(MEDBAG_MODEL))
+    
+    -- Revive player if still dead (fallback)
+    if IsEntityDead(playerPed) then
+        local coords = GetEntityCoords(playerPed)
+        NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, GetEntityHeading(playerPed), true, false)
+        ClearPedTasksImmediately(playerPed)
+    end
+    
+    -- Request an available hospital bed from server
+    TriggerServerEvent('custom_aimedic:requestBed')
+end
+
+-- Receive bed assignment from server
+RegisterNetEvent('custom_aimedic:assignBed')
+AddEventHandler('custom_aimedic:assignBed', function(bedIndex, bedData)
+    local playerPed = PlayerPedId()
+    
+    print('[AI Medic Client] Assigned to bed ' .. bedIndex)
+    
+    -- Teleport player to hospital bed
+    SetEntityCoords(playerPed, bedData.coords.x, bedData.coords.y, bedData.coords.z, false, false, false, true)
+    SetEntityHeading(playerPed, bedData.heading)
+    
+    -- Set player to lay on bed
+    RequestAnimDict("anim@gangops@morgue@table@")
+    while not HasAnimDictLoaded("anim@gangops@morgue@table@") do Wait(10) end
+    TaskPlayAnim(playerPed, "anim@gangops@morgue@table@", "body_search", 8.0, -8.0, -1, 1, 0, false, false, false)
+    
+    -- Give full health
+    SetEntityHealth(playerPed, GetEntityMaxHealth(playerPed))
+    
+    Wait(1000)
+    
+    -- Fade screen back in
+    DoScreenFadeIn(1000)
+    Wait(1000)
+    
+    -- Show press E to get up message
+    local canGetUp = false
+    CreateThread(function()
+        Wait(3000) -- Wait 3 seconds before allowing player to get up
+        canGetUp = true
+    end)
+    
+    -- Wait for player to press E to get up
+    while true do
+        Wait(0)
+        if canGetUp then
+            DrawText3D(bedData.coords.x, bedData.coords.y, bedData.coords.z + 1.0, "Press ~g~[E]~w~ to get up")
+            if IsControlJustPressed(0, 38) then -- E key
+                break
+            end
+        else
+            DrawText3D(bedData.coords.x, bedData.coords.y, bedData.coords.z + 1.0, "Recovering...")
+        end
+    end
+    
+    -- Get up from bed
+    ClearPedTasks(playerPed)
+    Wait(100)
+    
+    -- Play get up animation
+    RequestAnimDict("get_up@directional@transition@prone_to_seated@crawl")
+    if HasAnimDictLoaded("get_up@directional@transition@prone_to_seated@crawl") then
+        TaskPlayAnim(playerPed, "get_up@directional@transition@prone_to_seated@crawl", "front", 8.0, -8.0, 1000, 0, 0, false, false, false)
+    end
+    
+    Wait(1000)
+    Utils.NotifyClient('You have been treated and released from the hospital.', 'success')
+    
+    -- Release the bed on the server
+    TriggerServerEvent('custom_aimedic:releaseBed')
+    
     isBeingRevived = false
+    TriggerServerEvent('custom_aimedic:reviveComplete', currentMedicId)
 end)
 
 RegisterNetEvent('custom_aimedic:standaloneRevive')
@@ -162,19 +258,6 @@ function DrawText3D(x, y, z, text)
     DrawText(_x, _y)
 end
 
-function GetNearestHospital(pos)
-    local closest, dist
-    for _, hospital in pairs(Config.Hospitals) do
-        if hospital and type(hospital) == 'vector3' then
-            local d = #(pos - hospital)
-            if not dist or d < dist then
-                closest, dist = hospital, d
-            end
-        end
-    end
-    return closest or Config.Hospitals.default
-end
-
 function WeaponToName(hash)
     for name, value in pairs(_G) do
         if type(value) == 'number' and value == hash and name:match("^WEAPON_") then
@@ -183,3 +266,15 @@ function WeaponToName(hash)
     end
     return "unknown"
 end
+
+-- Show /callmedic command suggestion when player spawns
+AddEventHandler('playerSpawned', function()
+    Wait(2000) -- Wait 2 seconds after spawn
+    TriggerEvent('chat:addSuggestion', '/callmedic', 'Call an AI medic to revive you when downed', {})
+end)
+
+-- Also show on resource start for players already connected
+Citizen.CreateThread(function()
+    Wait(5000) -- Wait 5 seconds after resource start
+    TriggerEvent('chat:addSuggestion', '/callmedic', 'Call an AI medic to revive you when downed', {})
+end)
