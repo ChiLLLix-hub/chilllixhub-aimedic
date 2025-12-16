@@ -47,9 +47,16 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     local vehicle = CreateVehicle(Config.AmbulanceModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
     local medic = CreatePedInsideVehicle(vehicle, 4, Config.MedicModel, -1, true, false)
 
-    -- Ensure vehicle is unlocked for medic operations
+    -- Ensure vehicle is completely unlocked for all operations
     SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
+    -- Unlock all individual doors
+    for i = 0, 5 do
+        SetVehicleDoorOpen(vehicle, i, false, false) -- Open doors briefly to unlock
+        Wait(10)
+        SetVehicleDoorShut(vehicle, i, false) -- Close them
+    end
     
     SetVehicleSiren(vehicle, true)
     SetVehicleHasMutedSirens(vehicle, false)
@@ -70,24 +77,34 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     local timeout = GetGameTimer() + 30000
     while #(GetEntityCoords(vehicle) - playerPos) > 5.0 and GetGameTimer() < timeout do Wait(500) end
 
-    ClearPedTasks(medic)
-    Wait(1000)
-    
-    -- Unlock vehicle before medic exits
+    -- Immediately unlock vehicle when arrived
     SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
+    
+    ClearPedTasks(medic)
+    Wait(500) -- Reduced from 1000ms to 500ms
+    
+    -- Force unlock all doors before medic exits
+    SetVehicleDoorsLocked(vehicle, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
     
     TaskLeaveVehicle(medic, vehicle, 0)
-    Wait(2000)
+    Wait(1000) -- Reduced from 2000ms to 1000ms
+    
+    -- Force medic out if still inside
     if IsPedInAnyVehicle(medic, false) then
         ClearPedTasksImmediately(medic)
-        TaskLeaveVehicle(medic, vehicle, 0)
-        Wait(2000)
+        SetPedCanRagdoll(medic, false)
+        TaskLeaveVehicle(medic, vehicle, 256) -- Use flag 256 for instant exit
+        Wait(500) -- Reduced from 2000ms to 500ms
     end
     
     -- Ensure vehicle remains unlocked after medic exits
     SetVehicleDoorsLocked(vehicle, 1)
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
 
     TaskGoToCoordAnyMeans(medic, playerPos.x, playerPos.y, playerPos.z, 2.0, 0, 0, 786603, 0)
     local walkTimeout = GetGameTimer() + 10000
@@ -139,16 +156,23 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
 
     local dest = GetNearestHospital(playerPos)
     
-    -- Unlock vehicle before player enters
+    -- Force unlock all doors before player enters
     SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
+    -- Open rear doors to ensure they're accessible
+    SetVehicleDoorOpen(vehicle, 2, false, false) -- Rear left
+    SetVehicleDoorOpen(vehicle, 3, false, false) -- Rear right
     
     TaskEnterVehicle(playerPed, vehicle, 10000, 2, 1.0, 1, 0)
     Wait(3000)
     
-    -- Unlock vehicle before medic enters
+    -- Close doors and unlock before medic enters
+    SetVehicleDoorShut(vehicle, 2, false)
+    SetVehicleDoorShut(vehicle, 3, false)
     SetVehicleDoorsLocked(vehicle, 1)
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
     
     TaskVehicleDriveToCoord(medic, vehicle, dest.x, dest.y, dest.z, 25.0, 0, GetHashKey(Config.AmbulanceModel), 524863, 5.0, 1.0)
 
@@ -158,6 +182,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     -- Unlock vehicle before player exits at hospital
     SetVehicleDoorsLocked(vehicle, 1)
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
     
     TaskLeaveVehicle(playerPed, vehicle, 0)
     Wait(2000)
@@ -166,6 +191,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     -- Unlock vehicle before medic enters again
     SetVehicleDoorsLocked(vehicle, 1)
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
     
     TaskEnterVehicle(medic, vehicle, -1, -1, 1.0, 1, 0)
     Wait(3000)
