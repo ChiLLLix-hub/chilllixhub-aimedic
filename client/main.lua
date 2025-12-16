@@ -165,11 +165,23 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     SetVehicleDoorOpen(vehicle, 3, false, false) -- Rear right
     
     TaskEnterVehicle(playerPed, vehicle, 10000, 2, 1.0, 1, 0)
-    Wait(3000)
     
-    -- Close doors and unlock before medic enters
+    -- Wait for player to actually enter the vehicle (check if in vehicle)
+    local enterTimeout = GetGameTimer() + 10000
+    while not IsPedInVehicle(playerPed, vehicle, false) and GetGameTimer() < enterTimeout do 
+        Wait(100)
+        -- Keep doors unlocked while waiting
+        SetVehicleDoorsLocked(vehicle, 1)
+        SetVehicleDoorsLockedForAllPlayers(vehicle, false)
+        SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
+    end
+    
+    -- Player is now inside, wait a moment then close doors
+    Wait(500)
     SetVehicleDoorShut(vehicle, 2, false)
     SetVehicleDoorShut(vehicle, 3, false)
+    
+    -- Ensure unlocked before medic enters
     SetVehicleDoorsLocked(vehicle, 1)
     SetVehicleDoorsLockedForAllPlayers(vehicle, false)
     SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
@@ -252,3 +264,15 @@ function WeaponToName(hash)
     end
     return "unknown"
 end
+
+-- Show /callmedic command suggestion when player spawns
+AddEventHandler('playerSpawned', function()
+    Wait(2000) -- Wait 2 seconds after spawn
+    TriggerEvent('chat:addSuggestion', '/callmedic', 'Call an AI medic to revive you when downed', {})
+end)
+
+-- Also show on resource start for players already connected
+Citizen.CreateThread(function()
+    Wait(5000) -- Wait 5 seconds after resource start
+    TriggerEvent('chat:addSuggestion', '/callmedic', 'Call an AI medic to revive you when downed', {})
+end)
