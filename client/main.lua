@@ -166,8 +166,16 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
         ClearPedTasksImmediately(playerPed)
     end
     
-    -- Find an available hospital bed
-    local bedData = GetAvailableHospitalBed()
+    -- Request an available hospital bed from server
+    TriggerServerEvent('custom_aimedic:requestBed')
+end
+
+-- Receive bed assignment from server
+RegisterNetEvent('custom_aimedic:assignBed')
+AddEventHandler('custom_aimedic:assignBed', function(bedIndex, bedData)
+    local playerPed = PlayerPedId()
+    
+    print('[AI Medic Client] Assigned to bed ' .. bedIndex)
     
     -- Teleport player to hospital bed
     SetEntityCoords(playerPed, bedData.coords.x, bedData.coords.y, bedData.coords.z, false, false, false, true)
@@ -220,6 +228,9 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     Wait(1000)
     Utils.NotifyClient('You have been treated and released from the hospital.', 'success')
     
+    -- Release the bed on the server
+    TriggerServerEvent('custom_aimedic:releaseBed')
+    
     isBeingRevived = false
     TriggerServerEvent('custom_aimedic:reviveComplete', currentMedicId)
 end)
@@ -245,12 +256,6 @@ function DrawText3D(x, y, z, text)
     SetTextEntry("STRING")
     AddTextComponentString(text)
     DrawText(_x, _y)
-end
-
-function GetAvailableHospitalBed()
-    -- Simple random bed selection (can be enhanced with occupancy tracking later)
-    local bedIndex = math.random(1, #Config.HospitalBeds)
-    return Config.HospitalBeds[bedIndex]
 end
 
 function WeaponToName(hash)

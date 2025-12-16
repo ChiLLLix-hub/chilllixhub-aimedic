@@ -16,6 +16,10 @@ local medicQueue = {}
 local medicAssignments = {} -- Track which players are assigned to which medic
 local activeMedicLocations = {} -- Track active medic dispatch locations
 
+-- Hospital bed occupancy tracking
+local occupiedBeds = {} -- Track which beds are currently occupied {[bedIndex] = playerId}
+local playerBedAssignments = {} -- Track which bed each player is on {[playerId] = bedIndex}
+
 -- Map bounds configuration
 local MIN_MAP_X = -4000
 local MAX_MAP_X = 4000
@@ -35,6 +39,48 @@ function ValidateCoordinates(coords)
     if coords.z < MIN_MAP_Z or coords.z > MAX_MAP_Z then return false end
     
     return true
+end
+
+-- Get an available hospital bed
+function GetAvailableBed()
+    -- Try to find an unoccupied bed
+    for bedIndex = 1, #Config.HospitalBeds do
+        if not occupiedBeds[bedIndex] then
+            return bedIndex
+        end
+    end
+    
+    -- If all beds are occupied, return a random one (overwrite)
+    -- This prevents system failure when all beds are full
+    print('[AI Medic] Warning: All hospital beds occupied, assigning random bed')
+    return math.random(1, #Config.HospitalBeds)
+end
+
+-- Reserve a bed for a player
+function ReserveBed(playerId, bedIndex)
+    -- Release any previously assigned bed
+    if playerBedAssignments[playerId] then
+        local oldBedIndex = playerBedAssignments[playerId]
+        occupiedBeds[oldBedIndex] = nil
+        print('[AI Medic] Released bed ' .. oldBedIndex .. ' (previous assignment for player ' .. playerId .. ')')
+    end
+    
+    -- Reserve the new bed
+    occupiedBeds[bedIndex] = playerId
+    playerBedAssignments[playerId] = bedIndex
+    print('[AI Medic] Reserved bed ' .. bedIndex .. ' for player ' .. playerId)
+end
+
+-- Release a bed
+function ReleaseBed(playerId)
+    if playerBedAssignments[playerId] then
+        local bedIndex = playerBedAssignments[playerId]
+        occupiedBeds[bedIndex] = nil
+        playerBedAssignments[playerId] = nil
+        print('[AI Medic] Released bed ' .. bedIndex .. ' for player ' .. playerId)
+        return true
+    end
+    return false
 end
 
 -- Find nearby downed players within radius
@@ -270,6 +316,9 @@ AddEventHandler('playerDropped', function()
             end
         end
     end
+    
+    -- Release any occupied bed
+    ReleaseBed(src)
 end)
 
 RegisterCommand('callmedic', function(source)
@@ -438,4 +487,22 @@ AddEventHandler('custom_aimedic:reviveComplete', function(medicId)
         -- Process queue if there are waiting requests
         ProcessMedicQueue()
     end
+end)
+
+-- Request an available hospital bed
+RegisterNetEvent('custom_aimedic:requestBed')
+AddEventHandler('custom_aimedic:requestBed', function()
+    local src = source
+    local bedIndex = GetAvailableBed()
+    ReserveBed(src, bedIndex)
+    
+    -- Send bed data back to client
+    TriggerClientEvent('custom_aimedic:assignBed', src, bedIndex, Config.HospitalBeds[bedIndex])
+end)
+
+-- Release hospital bed when player gets up
+RegisterNetEvent('custom_aimedic:releaseBed')
+AddEventHandler('custom_aimedic:releaseBed', function()
+    local src = source
+    ReleaseBed(src)
 end)
