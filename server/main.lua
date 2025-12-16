@@ -275,6 +275,27 @@ end)
 RegisterCommand('callmedic', function(source)
     local currentTime = os.time()
     
+    -- Check if player is actually downed FIRST (before any tracking)
+    local ped = GetPlayerPed(source)
+    local isDowned = false
+    
+    if Utils.QBCore then
+        local Player = Utils.QBCore.Functions.GetPlayer(source)
+        if Player and (Player.PlayerData.metadata['isdead'] or Player.PlayerData.metadata['inlaststand']) then
+            isDowned = true
+        end
+    else
+        if IsEntityDead(ped) then
+            isDowned = true
+        end
+    end
+    
+    if not isDowned then
+        Utils.Notify(source, "You are not injured enough to call EMS.", "error")
+        print('[AI Medic] Player ' .. source .. ' attempted to call medic while not downed')
+        return
+    end
+    
     -- Check cooldown
     if commandCooldowns[source] and currentTime - commandCooldowns[source] < COOLDOWN_TIME then
         local remaining = COOLDOWN_TIME - (currentTime - commandCooldowns[source])
@@ -317,7 +338,6 @@ RegisterCommand('callmedic', function(source)
         return
     end
 
-    local ped = GetPlayerPed(source)
     local coords = GetEntityCoords(ped)
     if not ValidateCoordinates(coords) then
         print('[AI Medic] Invalid coords for source: ' .. source .. ' - ' .. tostring(coords))
