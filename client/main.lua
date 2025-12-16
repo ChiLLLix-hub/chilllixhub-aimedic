@@ -119,6 +119,8 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     local isInWater = IsPlayerInWater()
     local needsSafeSpawn = isInInterior or isInWater
     
+    print('[AI Medic Client] Player location check - Interior: ' .. tostring(isInInterior) .. ', Water: ' .. tostring(isInWater))
+    
     local spawnPos = playerPos
     if needsSafeSpawn then
         -- Find a safe spawn position
@@ -126,6 +128,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
         
         if foundSafe then
             spawnPos = safePos
+            print('[AI Medic Client] Found safe spawn position: ' .. tostring(spawnPos))
             if isInInterior then
                 Utils.NotifyClient('AI EMS is being dispatched to a nearby location (you are inside a building).', 'primary')
             elseif isInWater then
@@ -134,17 +137,20 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
         else
             -- If we can't find a safe position, use offset from player position
             spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, -30.0, 0.0, 0.0)
+            print('[AI Medic Client] Could not find safe spawn, using fallback offset position')
             Utils.NotifyClient('AI EMS is en route but may have difficulty reaching you due to your location.', 'warning')
         end
     else
         -- Normal spawn: offset from player position
         spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, -10.0, 0.0, 0.0)
+        print('[AI Medic Client] Normal spawn - player in open area')
     end
     
     -- Ensure spawn position has valid ground Z
     local groundFound, groundZ = GetGroundZFor_3dCoord(spawnPos.x, spawnPos.y, spawnPos.z + 100.0, 0)
     if groundFound then
         spawnPos = vector3(spawnPos.x, spawnPos.y, groundZ + 0.5)
+        print('[AI Medic Client] Adjusted spawn position to ground level: Z=' .. groundZ)
     end
     
     local vehicle = CreateVehicle(Config.AmbulanceModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
