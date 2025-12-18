@@ -1,6 +1,82 @@
 local isBeingRevived = false
 local MEDBAG_MODEL = "prop_med_bag_01"
 
+-- Spawn location constants
+local ROAD_SEARCH_RADIUS = 3.0 -- Maximum distance to search for nearest road
+local SEARCH_DISTANCE_FAR = 30.0 -- Far search distance for directional scan
+local SEARCH_DISTANCE_NEAR = 20.0 -- Near search distance for diagonal directions
+local GROUND_SEARCH_HEIGHT = 100.0 -- Height offset for ground detection
+local GROUND_OFFSET = 0.5 -- Vertical offset above ground level for spawn
+
+-- Function to check if player is in an interior/building
+function IsPlayerInInterior()
+    local playerPed = PlayerPedId()
+    local interior = GetInteriorFromEntity(playerPed)
+    return interior ~= 0
+end
+
+-- Function to check if player is in water/ocean
+function IsPlayerInWater()
+    local playerPed = PlayerPedId()
+    return IsPedSwimming(playerPed) or IsPedSwimmingUnderWater(playerPed)
+end
+
+-- Function to find safe spawn position for ambulance
+-- Returns a safe position on a nearby road or falls back to a position outside the interior/water
+function FindSafeSpawnPosition(playerPos)
+    local safePos = playerPos
+    local foundSafe = false
+    
+    -- Try to find a nearby road position
+    local roadFound, roadCoords, heading = GetClosestVehicleNodeWithHeading(playerPos.x, playerPos.y, playerPos.z, 1, ROAD_SEARCH_RADIUS, 0)
+    
+    if roadFound then
+        -- Verify the road position is not in water
+        local testWater, waterZ = TestProbeAgainstWater(roadCoords.x, roadCoords.y, roadCoords.z - 5.0, roadCoords.x, roadCoords.y, roadCoords.z + 5.0)
+        
+        if not testWater then
+            -- Road position is safe (not in water)
+            safePos = roadCoords
+            foundSafe = true
+        end
+    end
+    
+    -- If we still don't have a safe position, try multiple directions from player
+    if not foundSafe then
+        local directions = {
+            {x = SEARCH_DISTANCE_FAR, y = 0.0},
+            {x = -SEARCH_DISTANCE_FAR, y = 0.0},
+            {x = 0.0, y = SEARCH_DISTANCE_FAR},
+            {x = 0.0, y = -SEARCH_DISTANCE_FAR},
+            {x = SEARCH_DISTANCE_NEAR, y = SEARCH_DISTANCE_NEAR},
+            {x = -SEARCH_DISTANCE_NEAR, y = -SEARCH_DISTANCE_NEAR},
+        }
+        
+        for _, dir in ipairs(directions) do
+            local testPos = vector3(playerPos.x + dir.x, playerPos.y + dir.y, playerPos.z)
+            local groundFound, groundZ = GetGroundZFor_3dCoord(testPos.x, testPos.y, testPos.z + GROUND_SEARCH_HEIGHT, 0)
+            
+            if groundFound then
+                testPos = vector3(testPos.x, testPos.y, groundZ)
+                local testWater, waterZ = TestProbeAgainstWater(testPos.x, testPos.y, testPos.z - 5.0, testPos.x, testPos.y, testPos.z + 5.0)
+                
+                -- Check if position is not in water and not in interior
+                if not testWater then
+                    -- Check if this position is also outside interior
+                    local testInterior = GetInteriorAtCoords(testPos.x, testPos.y, testPos.z)
+                    if testInterior == 0 then
+                        safePos = testPos
+                        foundSafe = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    return safePos, foundSafe
+end
+
 RegisterNetEvent('custom_aimedic:revivePlayer')
 AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, medicId)
     if isBeingRevived then return end
@@ -43,7 +119,46 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     end
 
     local playerPos = GetEntityCoords(playerPed)
-    local spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, -10.0, 0.0, 0.0)
+    
+    -- Check if player is in problematic location
+    local isInInterior = IsPlayerInInterior()
+    local isInWater = IsPlayerInWater()
+    local needsSafeSpawn = isInInterior or isInWater
+    
+    print('[AI Medic Client] Player location check - Interior: ' .. tostring(isInInterior) .. ', Water: ' .. tostring(isInWater))
+    
+    local spawnPos = playerPos
+    if needsSafeSpawn then
+        -- Find a safe spawn position
+        local safePos, foundSafe = FindSafeSpawnPosition(playerPos)
+        
+        if foundSafe then
+            spawnPos = safePos
+            print('[AI Medic Client] Found safe spawn position: ' .. tostring(spawnPos))
+            if isInInterior then
+                Utils.NotifyClient('AI EMS is being dispatched to a nearby location (you are inside a building).', 'primary')
+            elseif isInWater then
+                Utils.NotifyClient('AI EMS is being dispatched to the nearest shore (you are in the water).', 'primary')
+            end
+        else
+            -- If we can't find a safe position, use offset from player position
+            spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, -30.0, 0.0, 0.0)
+            print('[AI Medic Client] Could not find safe spawn, using fallback offset position')
+            Utils.NotifyClient('AI EMS is en route but may have difficulty reaching you due to your location.', 'warning')
+        end
+    else
+        -- Normal spawn: offset from player position
+        spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, -10.0, 0.0, 0.0)
+        print('[AI Medic Client] Normal spawn - player in open area')
+    end
+    
+    -- Ensure spawn position has valid ground Z
+    local groundFound, groundZ = GetGroundZFor_3dCoord(spawnPos.x, spawnPos.y, spawnPos.z + GROUND_SEARCH_HEIGHT, 0)
+    if groundFound then
+        spawnPos = vector3(spawnPos.x, spawnPos.y, groundZ + GROUND_OFFSET)
+        print('[AI Medic Client] Adjusted spawn position to ground level: Z=' .. groundZ)
+    end
+    
     local vehicle = CreateVehicle(Config.AmbulanceModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
     local medic = CreatePedInsideVehicle(vehicle, 4, Config.MedicModel, -1, true, false)
 
