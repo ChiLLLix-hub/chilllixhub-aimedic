@@ -2,80 +2,8 @@ local isBeingRevived = false
 local MEDBAG_MODEL = "prop_med_bag_01"
 
 -- Spawn location constants
-local ROAD_SEARCH_RADIUS = 3.0 -- Maximum distance to search for nearest road
-local SEARCH_DISTANCE_FAR = 30.0 -- Far search distance for directional scan
-local SEARCH_DISTANCE_NEAR = 20.0 -- Near search distance for diagonal directions
 local GROUND_SEARCH_HEIGHT = 100.0 -- Height offset for ground detection
 local GROUND_OFFSET = 0.5 -- Vertical offset above ground level for spawn
-
--- Function to check if player is in an interior/building
-function IsPlayerInInterior()
-    local playerPed = PlayerPedId()
-    local interior = GetInteriorFromEntity(playerPed)
-    return interior ~= 0
-end
-
--- Function to check if player is in water/ocean
-function IsPlayerInWater()
-    local playerPed = PlayerPedId()
-    return IsPedSwimming(playerPed) or IsPedSwimmingUnderWater(playerPed)
-end
-
--- Function to find safe spawn position for ambulance
--- Returns a safe position on a nearby road or falls back to a position outside the interior/water
-function FindSafeSpawnPosition(playerPos)
-    local safePos = playerPos
-    local foundSafe = false
-    
-    -- Try to find a nearby road position
-    local roadFound, roadCoords, heading = GetClosestVehicleNodeWithHeading(playerPos.x, playerPos.y, playerPos.z, 1, ROAD_SEARCH_RADIUS, 0)
-    
-    if roadFound then
-        -- Verify the road position is not in water
-        local testWater, waterZ = TestProbeAgainstWater(roadCoords.x, roadCoords.y, roadCoords.z - 5.0, roadCoords.x, roadCoords.y, roadCoords.z + 5.0)
-        
-        if not testWater then
-            -- Road position is safe (not in water)
-            safePos = roadCoords
-            foundSafe = true
-        end
-    end
-    
-    -- If we still don't have a safe position, try multiple directions from player
-    if not foundSafe then
-        local directions = {
-            {x = SEARCH_DISTANCE_FAR, y = 0.0},
-            {x = -SEARCH_DISTANCE_FAR, y = 0.0},
-            {x = 0.0, y = SEARCH_DISTANCE_FAR},
-            {x = 0.0, y = -SEARCH_DISTANCE_FAR},
-            {x = SEARCH_DISTANCE_NEAR, y = SEARCH_DISTANCE_NEAR},
-            {x = -SEARCH_DISTANCE_NEAR, y = -SEARCH_DISTANCE_NEAR},
-        }
-        
-        for _, dir in ipairs(directions) do
-            local testPos = vector3(playerPos.x + dir.x, playerPos.y + dir.y, playerPos.z)
-            local groundFound, groundZ = GetGroundZFor_3dCoord(testPos.x, testPos.y, testPos.z + GROUND_SEARCH_HEIGHT, 0)
-            
-            if groundFound then
-                testPos = vector3(testPos.x, testPos.y, groundZ)
-                local testWater, waterZ = TestProbeAgainstWater(testPos.x, testPos.y, testPos.z - 5.0, testPos.x, testPos.y, testPos.z + 5.0)
-                
-                -- Check if position is not in water and not in interior
-                if not testWater then
-                    -- Check if this position is also outside interior
-                    local testInterior = GetInteriorAtCoords(testPos.x, testPos.y, testPos.z)
-                    if testInterior == 0 then
-                        safePos = testPos
-                        foundSafe = true
-                        break
-                    end
-                end
-            end
-        end
-    end
-    
-    return safePos, foundSafe
-end
 
 RegisterNetEvent('custom_aimedic:revivePlayer')
 AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, medicId)
@@ -112,45 +40,17 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     local displayCause = "Died from: " .. causeText
 
     RequestModel(Config.MedicModel)
-    RequestModel(Config.AmbulanceModel)
     RequestModel(GetHashKey(MEDBAG_MODEL))
-    while not HasModelLoaded(Config.MedicModel) or not HasModelLoaded(Config.AmbulanceModel) or not HasModelLoaded(GetHashKey(MEDBAG_MODEL)) do
+    while not HasModelLoaded(Config.MedicModel) or not HasModelLoaded(GetHashKey(MEDBAG_MODEL)) do
         Wait(10)
     end
 
     local playerPos = GetEntityCoords(playerPed)
     
-    -- Check if player is in problematic location
-    local isInInterior = IsPlayerInInterior()
-    local isInWater = IsPlayerInWater()
-    local needsSafeSpawn = isInInterior or isInWater
+    print('[AI Medic Client] Spawning medic directly at player location')
     
-    print('[AI Medic Client] Player location check - Interior: ' .. tostring(isInInterior) .. ', Water: ' .. tostring(isInWater))
-    
-    local spawnPos = playerPos
-    if needsSafeSpawn then
-        -- Find a safe spawn position
-        local safePos, foundSafe = FindSafeSpawnPosition(playerPos)
-        
-        if foundSafe then
-            spawnPos = safePos
-            print('[AI Medic Client] Found safe spawn position: ' .. tostring(spawnPos))
-            if isInInterior then
-                Utils.NotifyClient('AI EMS is being dispatched to a nearby location (you are inside a building).', 'primary')
-            elseif isInWater then
-                Utils.NotifyClient('AI EMS is being dispatched to the nearest shore (you are in the water).', 'primary')
-            end
-        else
-            -- If we can't find a safe position, use offset from player position
-            spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, -30.0, 0.0, 0.0)
-            print('[AI Medic Client] Could not find safe spawn, using fallback offset position')
-            Utils.NotifyClient('AI EMS is en route but may have difficulty reaching you due to your location.', 'warning')
-        end
-    else
-        -- Normal spawn: offset from player position
-        spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, -10.0, 0.0, 0.0)
-        print('[AI Medic Client] Normal spawn - player in open area')
-    end
+    -- Spawn medic directly at player location (no vehicle)
+    local spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, 2.0, 0.0, 0.0)
     
     -- Ensure spawn position has valid ground Z
     local groundFound, groundZ = GetGroundZFor_3dCoord(spawnPos.x, spawnPos.y, spawnPos.z + GROUND_SEARCH_HEIGHT, 0)
@@ -159,68 +59,22 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
         print('[AI Medic Client] Adjusted spawn position to ground level: Z=' .. groundZ)
     end
     
-    local vehicle = CreateVehicle(Config.AmbulanceModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
-    local medic = CreatePedInsideVehicle(vehicle, 4, Config.MedicModel, -1, true, false)
+    -- Create medic ped directly at location (not in vehicle)
+    local medic = CreatePed(4, Config.MedicModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
+    SetEntityAsMissionEntity(medic, true, true)
+    SetBlockingOfNonTemporaryEvents(medic, true)
 
-    -- Ensure vehicle is completely unlocked for all operations
-    SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
-    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
-    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
-    -- Unlock all individual doors
-    for i = 0, 5 do
-        SetVehicleDoorOpen(vehicle, i, false, false) -- Open doors briefly to unlock
-        Wait(10)
-        SetVehicleDoorShut(vehicle, i, false) -- Close them
-    end
-    
-    SetVehicleSiren(vehicle, true)
-    SetVehicleHasMutedSirens(vehicle, false)
-    SetVehicleLights(vehicle, 2)
-
-    local blip = AddBlipForEntity(vehicle)
-    SetBlipSprite(blip, 56)
+    local blip = AddBlipForEntity(medic)
+    SetBlipSprite(blip, 280)
     SetBlipScale(blip, 0.9)
     SetBlipColour(blip, 1)
     BeginTextCommandSetBlipName("STRING")
     AddTextComponentString("AI Medic")
     EndTextCommandSetBlipName(blip)
 
-    Utils.NotifyClient('AI EMS is on the way!', 'primary')
+    Utils.NotifyClient('AI Medic has arrived!', 'primary')
 
-    TaskVehicleDriveToCoord(medic, vehicle, playerPos.x, playerPos.y, playerPos.z, 25.0, 0, GetHashKey(Config.AmbulanceModel), 524863, 5.0, 1.0)
-
-    local timeout = GetGameTimer() + 30000
-    while #(GetEntityCoords(vehicle) - playerPos) > 5.0 and GetGameTimer() < timeout do Wait(500) end
-
-    -- Immediately unlock vehicle when arrived
-    SetVehicleDoorsLocked(vehicle, 1) -- 1 = unlocked
-    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
-    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
-    
-    ClearPedTasks(medic)
-    Wait(500) -- Reduced from 1000ms to 500ms
-    
-    -- Force unlock all doors before medic exits
-    SetVehicleDoorsLocked(vehicle, 1)
-    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
-    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
-    
-    TaskLeaveVehicle(medic, vehicle, 0)
-    Wait(1000) -- Reduced from 2000ms to 1000ms
-    
-    -- Force medic out if still inside
-    if IsPedInAnyVehicle(medic, false) then
-        ClearPedTasksImmediately(medic)
-        SetPedCanRagdoll(medic, false)
-        TaskLeaveVehicle(medic, vehicle, 256) -- Use flag 256 for instant exit
-        Wait(500) -- Reduced from 2000ms to 500ms
-    end
-    
-    -- Ensure vehicle remains unlocked after medic exits
-    SetVehicleDoorsLocked(vehicle, 1)
-    SetVehicleDoorsLockedForAllPlayers(vehicle, false)
-    SetVehicleDoorsLockedForPlayer(vehicle, PlayerId(), false)
-
+    -- Medic walks to player
     TaskGoToCoordAnyMeans(medic, playerPos.x, playerPos.y, playerPos.z, 2.0, 0, 0, 786603, 0)
     local walkTimeout = GetGameTimer() + 10000
     while #(GetEntityCoords(medic) - playerPos) > 2.0 and GetGameTimer() < walkTimeout do Wait(500) end
@@ -263,15 +117,13 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     DoScreenFadeOut(1000)
     Wait(1000)
     
-    -- Cleanup medic and vehicle while screen is black
+    -- Cleanup medic while screen is black
     DeleteEntity(bag)
     DeleteEntity(medic)
-    DeleteEntity(vehicle)
     if DoesBlipExist(blip) then RemoveBlip(blip) end
     
     -- Cleanup models from memory
     SetModelAsNoLongerNeeded(Config.MedicModel)
-    SetModelAsNoLongerNeeded(Config.AmbulanceModel)
     SetModelAsNoLongerNeeded(GetHashKey(MEDBAG_MODEL))
     
     -- Revive player if still dead (fallback)
