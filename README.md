@@ -1,5 +1,5 @@
 CES_AI_Medic_Script
-A fully autonomous AI Medic system for FiveM, compatible with QBCore and Standalone frameworks. This script detects when EMS are unavailable and sends a medic NPC to revive the player at their location, complete with animations, a medbag prop, and instant revival!
+A fully autonomous AI Medic system for FiveM, compatible with QBCore and Standalone frameworks. This script detects when EMS are unavailable and sends a medic NPC to revive the player at their location, complete with animations, a medbag prop, and on-site revival!
 
 🧠 Features ✅ QBCore and Standalone compatible
 
