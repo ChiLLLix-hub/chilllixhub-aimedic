@@ -9,8 +9,8 @@ version '1.5.0'
 shared_script 'config.lua'
 
 client_scripts {
-    'client/main.lua',
-    'client/utils_client.lua'
+    'client/utils_client.lua',
+    'client/main.lua'
 }
 
 server_scripts {
