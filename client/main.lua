@@ -7,6 +7,7 @@ local GROUND_SEARCH_HEIGHT = 100.0 -- Height offset for ground detection
 local GROUND_OFFSET = 0.5 -- Vertical offset above ground level for spawn
 
 RegisterNetEvent('custom_aimedic:revivePlayer')
+-- Parameters kept for backwards compatibility but only playerCoords is used
 AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, medicId)
     if isBeingRevived then return end
     isBeingRevived = true
@@ -57,6 +58,10 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     end
     
     -- Create medic ped directly at location (not in vehicle)
+    -- CreatePed(pedType, modelHash, x, y, z, heading, isNetwork, bScriptHostPed)
+    -- pedType: 4 = CIVMALE/CIVFEMALE (civilian ped type)
+    -- isNetwork: true = networked entity (visible to all players)
+    -- bScriptHostPed: false = ped is not a script host
     local medic = CreatePed(4, Config.MedicModel, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, true, false)
     SetEntityAsMissionEntity(medic, true, true)
     SetBlockingOfNonTemporaryEvents(medic, true)
@@ -76,7 +81,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     -- speed: 2.0 = normal walking speed
     -- vehicle: 0 = no vehicle
     -- walkingStyle: 0 = default walk style  
-    -- flags: 786603 = default walking behavior (move to coords, avoid obstacles, use navmesh)
+    -- flags: 786603 (composite of GTA V movement flags for natural pathfinding)
     -- warpDistance: 0 = no warp teleport
     TaskGoToCoordAnyMeans(medic, playerPos.x, playerPos.y, playerPos.z, 2.0, 0, 0, 786603, 0)
     local walkTimeout = GetGameTimer() + 10000

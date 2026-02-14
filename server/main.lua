@@ -228,7 +228,7 @@ RegisterCommand('callmedic', function(source)
     Utils.Notify(source, "AI medic dispatched!", "success")
     print('[AI Medic] Dispatching medic for player: ' .. source)
     
-    -- Trigger client event
+    -- Trigger client event (patients parameter kept for backwards compatibility)
     TriggerClientEvent('custom_aimedic:revivePlayer', source, coords, {source})
 end, false)
 
