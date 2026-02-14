@@ -121,11 +121,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
 
     Wait(1000)
     
-    -- Fade screen to black
-    DoScreenFadeOut(1000)
-    Wait(1000)
-    
-    -- Cleanup medic while screen is black
+    -- Cleanup medic and props
     DeleteEntity(bag)
     DeleteEntity(medic)
     if DoesBlipExist(blip) then RemoveBlip(blip) end
@@ -134,77 +130,17 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     SetModelAsNoLongerNeeded(Config.MedicModel)
     SetModelAsNoLongerNeeded(GetHashKey(MEDBAG_MODEL))
     
-    -- Revive player if still dead (fallback)
+    -- Revive player at current location (fallback)
     if IsEntityDead(playerPed) then
         local coords = GetEntityCoords(playerPed)
         NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, GetEntityHeading(playerPed), true, false)
         ClearPedTasksImmediately(playerPed)
     end
     
-    -- Request an available hospital bed from server
-    TriggerServerEvent('custom_aimedic:requestBed')
-end)
-
--- Receive bed assignment from server
-RegisterNetEvent('custom_aimedic:assignBed')
-AddEventHandler('custom_aimedic:assignBed', function(bedIndex, bedData)
-    local playerPed = PlayerPedId()
-    
-    print('[AI Medic Client] Assigned to bed ' .. bedIndex)
-    
-    -- Teleport player to hospital bed
-    SetEntityCoords(playerPed, bedData.coords.x, bedData.coords.y, bedData.coords.z, false, false, false, true)
-    SetEntityHeading(playerPed, bedData.heading)
-    
-    -- Set player to lay on bed
-    RequestAnimDict("anim@gangops@morgue@table@")
-    while not HasAnimDictLoaded("anim@gangops@morgue@table@") do Wait(10) end
-    TaskPlayAnim(playerPed, "anim@gangops@morgue@table@", "body_search", 8.0, -8.0, -1, 1, 0, false, false, false)
-    
-    -- Give full health
+    -- Give full health at current location
     SetEntityHealth(playerPed, GetEntityMaxHealth(playerPed))
     
-    Wait(1000)
-    
-    -- Fade screen back in
-    DoScreenFadeIn(1000)
-    Wait(1000)
-    
-    -- Show press E to get up message
-    local canGetUp = false
-    CreateThread(function()
-        Wait(3000) -- Wait 3 seconds before allowing player to get up
-        canGetUp = true
-    end)
-    
-    -- Wait for player to press E to get up
-    while true do
-        Wait(0)
-        if canGetUp then
-            DrawText3D(bedData.coords.x, bedData.coords.y, bedData.coords.z + 1.0, "Press ~g~[E]~w~ to get up")
-            if IsControlJustPressed(0, 38) then -- E key
-                break
-            end
-        else
-            DrawText3D(bedData.coords.x, bedData.coords.y, bedData.coords.z + 1.0, "Recovering...")
-        end
-    end
-    
-    -- Get up from bed
-    ClearPedTasks(playerPed)
-    Wait(100)
-    
-    -- Play get up animation
-    RequestAnimDict("get_up@directional@transition@prone_to_seated@crawl")
-    if HasAnimDictLoaded("get_up@directional@transition@prone_to_seated@crawl") then
-        TaskPlayAnim(playerPed, "get_up@directional@transition@prone_to_seated@crawl", "front", 8.0, -8.0, 1000, 0, 0, false, false, false)
-    end
-    
-    Wait(1000)
-    Utils.NotifyClient('You have been treated and released from the hospital.', 'success')
-    
-    -- Release the bed on the server
-    TriggerServerEvent('custom_aimedic:releaseBed')
+    Utils.NotifyClient('You have been revived by AI Medic.', 'success')
     
     isBeingRevived = false
     TriggerServerEvent('custom_aimedic:reviveComplete')
