@@ -283,7 +283,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     
     -- Request an available hospital bed from server
     TriggerServerEvent('custom_aimedic:requestBed')
-end
+end)
 
 -- Receive bed assignment from server
 RegisterNetEvent('custom_aimedic:assignBed')
