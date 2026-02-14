@@ -32,9 +32,6 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
         return
     end
 
-    -- Store medicId for cleanup (optional parameter)
-    local currentMedicId = medicId or "medic_unknown"
-
     local cause = GetPedCauseOfDeath(playerPed)
     local causeText = WeaponToName(cause)
     local displayCause = "Died from: " .. causeText
@@ -75,7 +72,12 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     Utils.NotifyClient('AI Medic has arrived!', 'primary')
 
     -- Medic walks to player
-    -- Task flags: 786603 = default walking behavior (move to coords, avoid obstacles, use navmesh)
+    -- TaskGoToCoordAnyMeans(ped, x, y, z, speed, vehicle, walkingStyle, flags, warpDistance)
+    -- speed: 2.0 = normal walking speed
+    -- vehicle: 0 = no vehicle
+    -- walkingStyle: 0 = default walk style  
+    -- flags: 786603 = default walking behavior (move to coords, avoid obstacles, use navmesh)
+    -- warpDistance: 0 = no warp teleport
     TaskGoToCoordAnyMeans(medic, playerPos.x, playerPos.y, playerPos.z, 2.0, 0, 0, 786603, 0)
     local walkTimeout = GetGameTimer() + 10000
     while #(GetEntityCoords(medic) - playerPos) > 2.0 and GetGameTimer() < walkTimeout do Wait(500) end
@@ -200,7 +202,7 @@ AddEventHandler('custom_aimedic:assignBed', function(bedIndex, bedData)
     TriggerServerEvent('custom_aimedic:releaseBed')
     
     isBeingRevived = false
-    TriggerServerEvent('custom_aimedic:reviveComplete', currentMedicId)
+    TriggerServerEvent('custom_aimedic:reviveComplete')
 end)
 
 RegisterNetEvent('custom_aimedic:standaloneRevive')

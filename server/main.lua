@@ -288,7 +288,7 @@ end)
 
 -- Client notifies when revive is complete
 RegisterNetEvent('custom_aimedic:reviveComplete')
-AddEventHandler('custom_aimedic:reviveComplete', function(medicId)
+AddEventHandler('custom_aimedic:reviveComplete', function()
     local src = source
     EndReviveProcess(src)
     print('[AI Medic] Revive completed for player: ' .. src)
