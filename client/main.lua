@@ -2,6 +2,7 @@ local isBeingRevived = false
 local MEDBAG_MODEL = "prop_med_bag_01"
 
 -- Spawn location constants
+local MEDIC_SPAWN_DISTANCE = 2.0 -- Distance offset from player for medic spawn
 local GROUND_SEARCH_HEIGHT = 100.0 -- Height offset for ground detection
 local GROUND_OFFSET = 0.5 -- Vertical offset above ground level for spawn
 
@@ -31,9 +32,8 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
         return
     end
 
-    -- Store medicId for cleanup
+    -- Store medicId for cleanup (optional parameter)
     local currentMedicId = medicId or "medic_unknown"
-    local patientList = patients or {GetPlayerServerId(PlayerId())}
 
     local cause = GetPedCauseOfDeath(playerPed)
     local causeText = WeaponToName(cause)
@@ -50,7 +50,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     print('[AI Medic Client] Spawning medic directly at player location')
     
     -- Spawn medic directly at player location (no vehicle)
-    local spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, 2.0, 0.0, 0.0)
+    local spawnPos = GetOffsetFromEntityInWorldCoords(playerPed, MEDIC_SPAWN_DISTANCE, 0.0, 0.0)
     
     -- Ensure spawn position has valid ground Z
     local groundFound, groundZ = GetGroundZFor_3dCoord(spawnPos.x, spawnPos.y, spawnPos.z + GROUND_SEARCH_HEIGHT, 0)
@@ -75,6 +75,7 @@ AddEventHandler('custom_aimedic:revivePlayer', function(playerCoords, patients, 
     Utils.NotifyClient('AI Medic has arrived!', 'primary')
 
     -- Medic walks to player
+    -- Task flags: 786603 = default walking behavior (move to coords, avoid obstacles, use navmesh)
     TaskGoToCoordAnyMeans(medic, playerPos.x, playerPos.y, playerPos.z, 2.0, 0, 0, 786603, 0)
     local walkTimeout = GetGameTimer() + 10000
     while #(GetEntityCoords(medic) - playerPos) > 2.0 and GetGameTimer() < walkTimeout do Wait(500) end
