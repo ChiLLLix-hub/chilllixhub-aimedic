@@ -10,12 +10,12 @@ local usageTracking = {}
 -- Server-side revive state tracking
 local playersBeingRevived = {}
 -- Map bounds configuration
-local MIN_MAP_X = -4000
-local MAX_MAP_X = 4000
-local MIN_MAP_Y = -4000
-local MAX_MAP_Y = 4000
-local MIN_MAP_Z = -100
-local MAX_MAP_Z = 1000
+local MIN_MAP_X = -4500
+local MAX_MAP_X = 4500
+local MIN_MAP_Y = -4500
+local MAX_MAP_Y = 8000
+local MIN_MAP_Z = -300
+local MAX_MAP_Z = 1500
 
 -- Validate coordinates are within reasonable bounds
 function ValidateCoordinates(coords)
